@@ -18,21 +18,22 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -o server ./cmd/server
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -trimpath -o server ./cmd/server
 
-# Final stage
-FROM alpine:latest
+# Final stage - scratch for minimal size
+FROM scratch
 
-# Install runtime dependencies
-RUN apk --no-cache add ca-certificates tzdata
+# Copy CA certificates for HTTPS
+COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 
-WORKDIR /root/
+# Copy timezone data
+COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 
 # Copy binary from builder
-COPY --from=builder /app/server .
+COPY --from=builder /app/server /server
 
 # Expose port (CloudRun uses PORT env var)
 EXPOSE 8080
 
 # Run the server
-CMD ["./server"]
+ENTRYPOINT ["/server"]
