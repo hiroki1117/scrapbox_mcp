@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"log"
 
 	mcperrors "github.com/hiroki/scrapbox_mcp/pkg/errors"
 )
@@ -75,8 +76,11 @@ func (r *Registry) List() []Tool {
 
 // Execute runs a tool with the given arguments
 func (r *Registry) Execute(ctx context.Context, name string, arguments map[string]interface{}) (*ToolCallResult, error) {
+	log.Printf("[TOOL] Executing tool: %s, arguments: %v", name, arguments)
+
 	tool, err := r.Get(name)
 	if err != nil {
+		log.Printf("[TOOL] Tool not found: %s", name)
 		return &ToolCallResult{
 			Content: []ContentBlock{{
 				Type: "text",
@@ -88,6 +92,7 @@ func (r *Registry) Execute(ctx context.Context, name string, arguments map[strin
 
 	result, err := tool.Execute(ctx, arguments)
 	if err != nil {
+		log.Printf("[TOOL] Tool execution failed: %s, error: %v", name, err)
 		return &ToolCallResult{
 			Content: []ContentBlock{{
 				Type: "text",
@@ -96,6 +101,8 @@ func (r *Registry) Execute(ctx context.Context, name string, arguments map[strin
 			IsError: true,
 		}, mcperrors.NewMCPError(mcperrors.ErrCodeToolExecutionErr, "Tool execution failed", map[string]string{"error": err.Error()})
 	}
+
+	log.Printf("[TOOL] Tool execution completed: %s", name)
 
 	// Convert result to text content
 	return &ToolCallResult{
