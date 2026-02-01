@@ -76,3 +76,28 @@ Optional:
 | `search_pages` | Full-text search | REST |
 | `insert_lines` | Insert lines into a page | WebSocket |
 | `create_page` | Create a new page | WebSocket |
+
+## Sub Agents
+
+`.claude/agents/` 配下にサブエージェントを定義しています。
+
+| Agent | File | Description |
+|-------|------|-------------|
+| `code-review` | `.claude/agents/code-review.md` | コードレビュー、Goベストプラクティス確認 |
+| `scrapbox-spec` | `.claude/agents/scrapbox-spec.md` | Scrapbox/Cosense API仕様の調査・蓄積 |
+| `test-server` | `.claude/agents/test-server.md` | MCPサーバーの動作確認テスト |
+
+### 使い方
+
+```
+@code-review このPRをレビューして
+@scrapbox-spec WebSocketのcommit操作の仕様を調べて
+@test-server get_pageツールの動作確認して
+```
+
+### 仕様ドキュメント蓄積先
+
+`scrapbox-spec` エージェントの調査結果は `docs/` 配下に蓄積:
+- `docs/scrapbox-api.md` - REST API仕様
+- `docs/scrapbox-websocket.md` - WebSocket仕様
+- `docs/scrapbox-tips.md` - Tips・ハマりポイント
