@@ -370,36 +370,36 @@ func (wsc *WebSocketClient) CreatePage(pageID, projectID, userID, title string, 
 		return err
 	}
 
-	// Build all lines for the new page
-	allLines := make([]map[string]interface{}, 0, 1+len(bodyLines))
+	// Build changes using _insert operations
+	changes := make([]map[string]interface{}, 0, 1+len(bodyLines))
 
-	// Title line (first line) - use correct line ID format
-	titleLineID := createLineId(userID)
-	allLines = append(allLines, map[string]interface{}{
-		"id":   titleLineID,
-		"text": title,
+	// Set the title - Scrapbox automatically creates the title line
+	changes = append(changes, map[string]interface{}{
+		"title": title,
 	})
 
-	// Body lines - each with unique line ID
-	for _, line := range bodyLines {
+	// Body lines - build insert changes in reverse order
+	// Scrapbox processes changes in reverse, so we build them backwards
+	bodyChanges := make([]map[string]interface{}, 0, len(bodyLines))
+	var lastLineID string
+	for i := len(bodyLines) - 1; i >= 0; i-- {
 		lineID := createLineId(userID)
-		allLines = append(allLines, map[string]interface{}{
-			"id":   lineID,
-			"text": line,
+		insertPos := "_end"
+		if lastLineID != "" {
+			insertPos = lastLineID
+		}
+		bodyChanges = append(bodyChanges, map[string]interface{}{
+			"_insert": insertPos,
+			"lines": map[string]interface{}{
+				"id":   lineID,
+				"text": bodyLines[i],
+			},
 		})
+		lastLineID = lineID
 		// Small delay to ensure unique timestamps
 		time.Sleep(time.Millisecond)
 	}
-
-	// For new pages, use a single change that sets all lines
-	changes := []map[string]interface{}{
-		{
-			"title": title,
-		},
-		{
-			"lines": allLines,
-		},
-	}
+	changes = append(changes, bodyChanges...)
 
 	// Build commit data for new page
 	commitData := map[string]interface{}{
