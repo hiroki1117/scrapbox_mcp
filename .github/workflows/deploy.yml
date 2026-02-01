@@ -61,3 +61,6 @@ jobs:
             COSENSE_PROJECT_NAME=${{ secrets.COSENSE_PROJECT_NAME }}
           secrets: |
             COSENSE_SID=cosense-sid:latest
+          flags: |
+            --min-instances=0
+            --max-instances=1
