@@ -107,20 +107,22 @@ docker build -t scrapbox-mcp-server .
 
 ```bash
 # Tag for Google Container Registry
-docker tag scrapbox-mcp-server gcr.io/YOUR-PROJECT/scrapbox-mcp-server
+docker tag scrapbox-mcp-server asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/server:latest
 
 # Push to GCR
-docker push gcr.io/YOUR-PROJECT/scrapbox-mcp-server
+docker push asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/server:latest
+
 
 # Deploy to CloudRun
 gcloud run deploy scrapbox-mcp-server \
-  --image gcr.io/YOUR-PROJECT/scrapbox-mcp-server \
+  --image asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/server:latest \
   --platform managed \
   --region us-central1 \
+  --service-account your-serviceaccount \
   --min-instances 0 \
   --max-instances 1 \
   --set-env-vars COSENSE_PROJECT_NAME=your-project \
-  --set-secrets COSENSE_SID=scrapbox-sid:latest \
+  --set-secrets COSENSE_SID=cosense-sid:latest \
   --allow-unauthenticated
 ```
 
