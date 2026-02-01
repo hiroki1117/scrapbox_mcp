@@ -117,6 +117,8 @@ gcloud run deploy scrapbox-mcp-server \
   --image gcr.io/YOUR-PROJECT/scrapbox-mcp-server \
   --platform managed \
   --region us-central1 \
+  --min-instances 0 \
+  --max-instances 1 \
   --set-env-vars COSENSE_PROJECT_NAME=your-project \
   --set-secrets COSENSE_SID=scrapbox-sid:latest \
   --allow-unauthenticated
