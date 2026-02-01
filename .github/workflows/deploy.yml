@@ -64,3 +64,4 @@ jobs:
           flags: |
             --min-instances=0
             --max-instances=1
+            --timeout=600s

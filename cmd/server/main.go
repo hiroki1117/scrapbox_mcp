@@ -83,9 +83,9 @@ func main() {
 	server := &http.Server{
 		Addr:         ":" + cfg.Port,
 		Handler:      mux,
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		ReadTimeout:  600 * time.Second,
+		WriteTimeout: 600 * time.Second,
+		IdleTimeout:  600 * time.Second,
 	}
 
 	// Start server in a goroutine
