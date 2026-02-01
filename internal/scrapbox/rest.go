@@ -149,3 +149,89 @@ func (c *RESTClient) SearchPages(project, query string, limit int) (*SearchRespo
 
 	return &searchResp, nil
 }
+
+// GetMe retrieves the current user information
+func (c *RESTClient) GetMe() (*User, error) {
+	endpoint := fmt.Sprintf("%s/users/me", c.baseURL)
+
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to create request", err)
+	}
+
+	c.auth.AddAuthHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to fetch user", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to read response", err)
+	}
+
+	var user User
+	if err := json.Unmarshal(body, &user); err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to parse response", err)
+	}
+
+	return &user, nil
+}
+
+// ProjectInfo represents project information
+type ProjectInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// GetProject retrieves project information
+func (c *RESTClient) GetProject(projectName string) (*ProjectInfo, error) {
+	endpoint := fmt.Sprintf("%s/projects/%s", c.baseURL, projectName)
+
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to create request", err)
+	}
+
+	c.auth.AddAuthHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to fetch project", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNotFound, fmt.Sprintf("Project not found: %s", projectName), nil)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to read response", err)
+	}
+
+	var projectInfo ProjectInfo
+	if err := json.Unmarshal(body, &projectInfo); err != nil {
+		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to parse response", err)
+	}
+
+	return &projectInfo, nil
+}

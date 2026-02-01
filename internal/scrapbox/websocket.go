@@ -21,6 +21,8 @@ type WebSocketClient struct {
 	conn        *websocket.Conn
 	mu          sync.Mutex
 	connected   bool
+	ackID       int
+	ackChan     chan []byte
 }
 
 // NewWebSocketClient creates a new WebSocket client
@@ -29,6 +31,7 @@ func NewWebSocketClient(wsURL, projectName, cookie string) *WebSocketClient {
 		wsURL:       wsURL,
 		projectName: projectName,
 		cookie:      cookie,
+		ackChan:     make(chan []byte, 1),
 	}
 }
 
@@ -66,6 +69,7 @@ func (wsc *WebSocketClient) Connect() error {
 
 	wsc.conn = conn
 	wsc.connected = true
+	wsc.ackID = 0
 
 	// Handle Engine.IO handshake
 	if err := wsc.handleHandshake(); err != nil {
@@ -74,8 +78,8 @@ func (wsc *WebSocketClient) Connect() error {
 		return err
 	}
 
-	// Start heartbeat handler
-	go wsc.heartbeatHandler()
+	// Start message handler
+	go wsc.messageHandler()
 
 	return nil
 }
@@ -104,16 +108,16 @@ func (wsc *WebSocketClient) handleHandshake() error {
 		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to read connect response", err)
 	}
 
-	// Response should be "40"
-	if string(response) != "40" {
-		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Invalid connect response", nil)
+	// Response should start with "40" (can be "40" or "40{...}")
+	if len(response) < 2 || response[0] != '4' || response[1] != '0' {
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, fmt.Sprintf("Invalid connect response: %s", string(response)), nil)
 	}
 
 	return nil
 }
 
-// heartbeatHandler maintains the connection with ping/pong
-func (wsc *WebSocketClient) heartbeatHandler() {
+// messageHandler handles incoming messages
+func (wsc *WebSocketClient) messageHandler() {
 	for wsc.connected {
 		_, message, err := wsc.conn.ReadMessage()
 		if err != nil {
@@ -121,82 +125,138 @@ func (wsc *WebSocketClient) heartbeatHandler() {
 			return
 		}
 
+		if len(message) == 0 {
+			continue
+		}
+
 		// Engine.IO ping packet (type 2)
-		if len(message) > 0 && message[0] == '2' {
-			// Respond with pong (type 3)
+		if message[0] == '2' {
 			wsc.mu.Lock()
 			wsc.conn.WriteMessage(websocket.TextMessage, []byte("3"))
 			wsc.mu.Unlock()
+			continue
+		}
+
+		// Socket.IO ACK packet (type 43)
+		if len(message) >= 2 && message[0] == '4' && message[1] == '3' {
+			select {
+			case wsc.ackChan <- message:
+			default:
+			}
 		}
 	}
 }
 
-// InsertLines inserts lines into a page
-func (wsc *WebSocketClient) InsertLines(page *Page, targetLine string, newLines []string) error {
+// InsertLines inserts lines into a page using socket.io-request protocol
+func (wsc *WebSocketClient) InsertLines(page *Page, projectID, userID, targetLine string, newLines []string) error {
 	// Ensure connection
 	if err := wsc.Connect(); err != nil {
 		return err
 	}
 
-	// Find target line index
-	lineIndex := -1
-	for i, line := range page.Lines {
-		if line.Text == targetLine {
-			lineIndex = i
-			break
+	// Find target line - the line AFTER which we insert
+	var insertAfterLineID string
+	if targetLine == "" {
+		// Append to end: use last line's ID
+		if len(page.Lines) > 0 {
+			insertAfterLineID = page.Lines[len(page.Lines)-1].ID
+		}
+	} else {
+		// Find the target line
+		for _, line := range page.Lines {
+			if line.Text == targetLine {
+				insertAfterLineID = line.ID
+				break
+			}
+		}
+		// If not found, append to end
+		if insertAfterLineID == "" && len(page.Lines) > 0 {
+			insertAfterLineID = page.Lines[len(page.Lines)-1].ID
 		}
 	}
 
-	// If not found, append to end
-	if lineIndex == -1 {
-		lineIndex = len(page.Lines) - 1
+	if insertAfterLineID == "" {
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "No lines found in page", nil)
 	}
 
-	// Build changes for Socket.IO commit event
+	// Build changes for commit
 	changes := make([]map[string]interface{}, 0)
+	currentInsertAfter := insertAfterLineID
 	for i, newLine := range newLines {
-		lineID := fmt.Sprintf("%x", time.Now().UnixNano()/1e6+int64(i))
+		// Generate new line ID: userID prefix + timestamp
+		newLineID := fmt.Sprintf("%s%x", userID[:5], time.Now().UnixNano()/1e6+int64(i))
 		change := map[string]interface{}{
-			"_insert": lineID,
+			"_insert": currentInsertAfter, // Insert AFTER this existing line
 			"lines": map[string]interface{}{
-				"id":   lineID,
+				"id":   newLineID, // ID for the NEW line
 				"text": newLine,
 			},
-			"position": lineIndex + i + 1,
 		}
 		changes = append(changes, change)
+		// Next line should be inserted after this new line
+		currentInsertAfter = newLineID
 	}
 
-	// Build Socket.IO EVENT packet
-	event := map[string]interface{}{
+	// Build commit data
+	commitData := map[string]interface{}{
 		"kind":      "page",
-		"projectId": wsc.projectName,
+		"projectId": projectID,
 		"pageId":    page.ID,
 		"parentId":  page.CommitID,
+		"userId":    userID,
 		"changes":   changes,
+		"cursor":    nil,
+		"freeze":    true,
 	}
 
-	eventJSON, err := json.Marshal(event)
+	// Build socket.io-request payload
+	payload := map[string]interface{}{
+		"method": "commit",
+		"data":   commitData,
+	}
+
+	reqBody := []interface{}{"socket.io-request", payload}
+	reqJSON, err := json.Marshal(reqBody)
 	if err != nil {
-		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to marshal event", err)
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to marshal request", err)
 	}
 
-	// Socket.IO EVENT packet format: 42["commit",{...}]
-	packet := fmt.Sprintf(`42["commit",%s]`, string(eventJSON))
-
-	// Send packet
+	// Socket.IO EVENT packet with ACK: 42<ackId>["socket.io-request", {...}]
 	wsc.mu.Lock()
+	wsc.ackID++
+	ackID := wsc.ackID
+	packet := fmt.Sprintf("42%d%s", ackID, string(reqJSON))
 	err = wsc.conn.WriteMessage(websocket.TextMessage, []byte(packet))
 	wsc.mu.Unlock()
 
 	if err != nil {
-		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to send commit event", err)
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to send commit", err)
 	}
 
-	// Wait briefly for acknowledgment (simplified - a full implementation would parse the ack)
-	time.Sleep(500 * time.Millisecond)
-
-	return nil
+	// Wait for ACK response
+	select {
+	case ackMsg := <-wsc.ackChan:
+		// Parse ACK response: 43<ackId>[{...}]
+		if len(ackMsg) > 3 {
+			// Find the JSON array start
+			jsonStart := 2
+			for jsonStart < len(ackMsg) && ackMsg[jsonStart] >= '0' && ackMsg[jsonStart] <= '9' {
+				jsonStart++
+			}
+			if jsonStart < len(ackMsg) {
+				var ackData []map[string]interface{}
+				if err := json.Unmarshal(ackMsg[jsonStart:], &ackData); err == nil && len(ackData) > 0 {
+					if errData, ok := ackData[0]["error"]; ok {
+						errJSON, _ := json.Marshal(errData)
+						return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, fmt.Sprintf("Commit error: %s", string(errJSON)), nil)
+					}
+				}
+			}
+		}
+		return nil
+	case <-time.After(30 * time.Second):
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Timeout waiting for commit response", nil)
+	}
 }
 
 // Close closes the WebSocket connection
@@ -231,6 +291,18 @@ func (c *Client) InsertLines(pageTitle, targetLine string, newLines []string) er
 		return err
 	}
 
+	// Get user ID
+	user, err := c.RESTClient.GetMe()
+	if err != nil {
+		return err
+	}
+
+	// Get project ID
+	projectInfo, err := c.RESTClient.GetProject(c.ProjectName)
+	if err != nil {
+		return err
+	}
+
 	// Parse newLines if it's a single string with newlines
 	lines := newLines
 	if len(newLines) == 1 && strings.Contains(newLines[0], "\n") {
@@ -238,5 +310,5 @@ func (c *Client) InsertLines(pageTitle, targetLine string, newLines []string) er
 	}
 
 	// Insert via WebSocket
-	return c.WebSocketClient.InsertLines(page, targetLine, lines)
+	return c.WebSocketClient.InsertLines(page, projectInfo.ID, user.ID, targetLine, lines)
 }
