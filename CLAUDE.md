@@ -35,7 +35,8 @@ internal/
     ├── list_pages.go           # List pages in project
     ├── search_pages.go         # Full-text search
     ├── insert_lines.go         # Insert lines (WebSocket)
-    └── create_page.go          # Create new page (WebSocket)
+    ├── create_page.go          # Create new page (WebSocket)
+    └── edit_page.go            # Edit page content (WebSocket)
 pkg/errors/errors.go            # Custom error types
 ```
 
@@ -76,6 +77,7 @@ Optional:
 | `search_pages` | Full-text search | REST |
 | `insert_lines` | Insert lines into a page | WebSocket |
 | `create_page` | Create a new page | WebSocket |
+| `edit_page` | Replace page content with new text | WebSocket |
 
 ## Sub Agents
 

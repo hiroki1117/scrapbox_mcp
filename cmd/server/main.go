@@ -47,6 +47,7 @@ func main() {
 	registry.Register(tools.NewSearchPagesTool(scrapboxClient))
 	registry.Register(tools.NewInsertLinesTool(scrapboxClient, cfg.WebSocketURL))
 	registry.Register(tools.NewCreatePageTool(scrapboxClient, cfg.WebSocketURL))
+	registry.Register(tools.NewEditPageTool(scrapboxClient, cfg.WebSocketURL))
 
 	// Initialize MCP components
 	sessionMgr := mcp.NewSessionManager(cfg.SessionTTL)
