@@ -12,12 +12,12 @@ type Session struct {
 	CreatedAt        time.Time
 	LastAccessAt     time.Time
 	InitializeResult *InitializeResult
+	mu               sync.RWMutex
 }
 
 type SessionManager struct {
 	sessions sync.Map
 	ttl      time.Duration
-	mu       sync.Mutex
 }
 
 func NewSessionManager(ttl time.Duration) *SessionManager {
@@ -51,9 +51,10 @@ func (sm *SessionManager) Get(sessionID string) (*Session, bool) {
 
 	session := value.(*Session)
 
-	// Update last access time
+	// Update last access time with proper locking
+	session.mu.Lock()
 	session.LastAccessAt = time.Now()
-	sm.sessions.Store(sessionID, session)
+	session.mu.Unlock()
 
 	return session, true
 }
@@ -70,7 +71,10 @@ func (sm *SessionManager) cleanupExpiredSessions() {
 		now := time.Now()
 		sm.sessions.Range(func(key, value interface{}) bool {
 			session := value.(*Session)
-			if now.Sub(session.LastAccessAt) > sm.ttl {
+			session.mu.RLock()
+			expired := now.Sub(session.LastAccessAt) > sm.ttl
+			session.mu.RUnlock()
+			if expired {
 				sm.sessions.Delete(key)
 			}
 			return true
