@@ -59,11 +59,32 @@ type PagesResponse struct {
 	Pages       []PageInfo `json:"pages"`
 }
 
+// SearchPageInfo represents a page in search results
+type SearchPageInfo struct {
+	ID    string   `json:"id"`
+	Title string   `json:"title"`
+	Image string   `json:"image,omitempty"`
+	Words []string `json:"words,omitempty"`
+	Lines []string `json:"lines,omitempty"`
+}
+
+// SearchQuery represents the parsed query in search results
+type SearchQuery struct {
+	Words    []string `json:"words"`
+	Excludes []string `json:"excludes"`
+}
+
 // SearchResponse represents the response from search endpoints
 type SearchResponse struct {
-	Query string     `json:"query"`
-	Pages []PageInfo `json:"pages"`
-	Count int        `json:"count"`
+	ProjectName           string           `json:"projectName"`
+	SearchQuery           string           `json:"searchQuery"`
+	Limit                 int              `json:"limit"`
+	Count                 int              `json:"count"`
+	Pages                 []SearchPageInfo `json:"pages"`
+	ExistsExactTitleMatch bool             `json:"existsExactTitleMatch"`
+	Field                 string           `json:"field"`
+	Query                 SearchQuery      `json:"query"`
+	Backend               string           `json:"backend"`
 }
 
 // Client represents the main Scrapbox client
