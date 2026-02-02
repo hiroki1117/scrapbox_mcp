@@ -29,6 +29,17 @@ func NewRESTClient(baseURL, sessionCookie string, timeout time.Duration) *RESTCl
 	}
 }
 
+// checkResponseStatus handles common HTTP status code errors
+func checkResponseStatus(resp *http.Response) error {
+	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	}
+	return nil
+}
+
 // GetPage retrieves a page by title
 func (c *RESTClient) GetPage(project, title string) (*Page, error) {
 	endpoint := fmt.Sprintf("%s/pages/%s/%s", c.baseURL, project, url.PathEscape(title))
@@ -49,13 +60,8 @@ func (c *RESTClient) GetPage(project, title string) (*Page, error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNotFound, fmt.Sprintf("Page not found: %s", title), nil)
 	}
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	if err := checkResponseStatus(resp); err != nil {
+		return nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -88,12 +94,8 @@ func (c *RESTClient) ListPages(project string, limit, skip int) (*PagesResponse,
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	if err := checkResponseStatus(resp); err != nil {
+		return nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -129,12 +131,8 @@ func (c *RESTClient) SearchPages(project, query string, limit int) (*SearchRespo
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	if err := checkResponseStatus(resp); err != nil {
+		return nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -167,12 +165,8 @@ func (c *RESTClient) GetMe() (*User, error) {
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	if err := checkResponseStatus(resp); err != nil {
+		return nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -214,13 +208,8 @@ func (c *RESTClient) GetProject(projectName string) (*ProjectInfo, error) {
 	if resp.StatusCode == http.StatusNotFound {
 		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNotFound, fmt.Sprintf("Project not found: %s", projectName), nil)
 	}
-
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeAuthFailed, "Authentication failed", nil)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, fmt.Sprintf("Unexpected status code: %d", resp.StatusCode), nil)
+	if err := checkResponseStatus(resp); err != nil {
+		return nil, err
 	}
 
 	body, err := io.ReadAll(resp.Body)
