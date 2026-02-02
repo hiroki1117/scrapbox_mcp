@@ -291,42 +291,7 @@ func (wsc *WebSocketClient) PatchPage(page *Page, projectID, userID string, newT
 		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to marshal request", err)
 	}
 
-	// Socket.IO EVENT packet with ACK: 42<ackId>["socket.io-request", {...}]
-	wsc.mu.Lock()
-	wsc.ackID++
-	ackID := wsc.ackID
-	packet := fmt.Sprintf("42%d%s", ackID, string(reqJSON))
-	err = wsc.conn.WriteMessage(websocket.TextMessage, []byte(packet))
-	wsc.mu.Unlock()
-
-	if err != nil {
-		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to send commit", err)
-	}
-
-	// Wait for ACK response
-	select {
-	case ackMsg := <-wsc.ackChan:
-		// Parse ACK response: 43<ackId>[{...}]
-		if len(ackMsg) > 3 {
-			// Find the JSON array start
-			jsonStart := 2
-			for jsonStart < len(ackMsg) && ackMsg[jsonStart] >= '0' && ackMsg[jsonStart] <= '9' {
-				jsonStart++
-			}
-			if jsonStart < len(ackMsg) {
-				var ackData []map[string]interface{}
-				if err := json.Unmarshal(ackMsg[jsonStart:], &ackData); err == nil && len(ackData) > 0 {
-					if errData, ok := ackData[0]["error"]; ok {
-						errJSON, _ := json.Marshal(errData)
-						return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, fmt.Sprintf("Commit error: %s", string(errJSON)), nil)
-					}
-				}
-			}
-		}
-		return nil
-	case <-time.After(30 * time.Second):
-		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Timeout waiting for commit response", nil)
-	}
+	return wsc.sendCommitAndWaitACK(reqJSON)
 }
 
 // InsertLines inserts lines into a page after a target line.
@@ -425,12 +390,16 @@ func (wsc *WebSocketClient) CreatePage(pageID, projectID, userID, title string, 
 		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Failed to marshal request", err)
 	}
 
-	// Socket.IO EVENT packet with ACK
+	return wsc.sendCommitAndWaitACK(reqJSON)
+}
+
+// sendCommitAndWaitACK sends a commit request and waits for ACK response
+func (wsc *WebSocketClient) sendCommitAndWaitACK(reqJSON []byte) error {
+	// Socket.IO EVENT packet with ACK: 42<ackId>["socket.io-request", {...}]
 	wsc.mu.Lock()
 	wsc.ackID++
-	ackID := wsc.ackID
-	packet := fmt.Sprintf("42%d%s", ackID, string(reqJSON))
-	err = wsc.conn.WriteMessage(websocket.TextMessage, []byte(packet))
+	packet := fmt.Sprintf("42%d%s", wsc.ackID, string(reqJSON))
+	err := wsc.conn.WriteMessage(websocket.TextMessage, []byte(packet))
 	wsc.mu.Unlock()
 
 	if err != nil {
@@ -440,25 +409,42 @@ func (wsc *WebSocketClient) CreatePage(pageID, projectID, userID, title string, 
 	// Wait for ACK response
 	select {
 	case ackMsg := <-wsc.ackChan:
-		if len(ackMsg) > 3 {
-			jsonStart := 2
-			for jsonStart < len(ackMsg) && ackMsg[jsonStart] >= '0' && ackMsg[jsonStart] <= '9' {
-				jsonStart++
-			}
-			if jsonStart < len(ackMsg) {
-				var ackData []map[string]interface{}
-				if err := json.Unmarshal(ackMsg[jsonStart:], &ackData); err == nil && len(ackData) > 0 {
-					if errData, ok := ackData[0]["error"]; ok {
-						errJSON, _ := json.Marshal(errData)
-						return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, fmt.Sprintf("Commit error: %s", string(errJSON)), nil)
-					}
-				}
-			}
-		}
-		return nil
+		return parseACKError(ackMsg)
 	case <-time.After(30 * time.Second):
 		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Timeout waiting for commit response", nil)
 	}
+}
+
+// parseACKError parses an ACK message and returns an error if it contains one
+func parseACKError(ackMsg []byte) error {
+	if len(ackMsg) <= 3 {
+		return nil
+	}
+
+	// Find the JSON array start (skip "43" and ackId digits)
+	jsonStart := 2
+	for jsonStart < len(ackMsg) && ackMsg[jsonStart] >= '0' && ackMsg[jsonStart] <= '9' {
+		jsonStart++
+	}
+
+	if jsonStart >= len(ackMsg) {
+		return nil
+	}
+
+	var ackData []map[string]interface{}
+	if err := json.Unmarshal(ackMsg[jsonStart:], &ackData); err != nil || len(ackData) == 0 {
+		return nil
+	}
+
+	if errData, ok := ackData[0]["error"]; ok {
+		errJSON, err := json.Marshal(errData)
+		if err != nil {
+			return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, "Commit error (failed to marshal)", nil)
+		}
+		return mcperrors.NewScrapboxError(mcperrors.ErrCodeWebSocketFail, fmt.Sprintf("Commit error: %s", string(errJSON)), nil)
+	}
+
+	return nil
 }
 
 // Close closes the WebSocket connection
