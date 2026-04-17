@@ -46,7 +46,8 @@ func (t *Transport) HandlePOST(w http.ResponseWriter, r *http.Request) {
 	if sessionID != "" {
 		_, exists := t.sessionManager.Get(sessionID)
 		if !exists {
-			http.Error(w, "Session not found", http.StatusUnauthorized)
+			// MCP spec: unknown session ID must return 404 so clients re-initialize
+			http.Error(w, "Session not found", http.StatusNotFound)
 			return
 		}
 	}
@@ -102,13 +103,15 @@ func (t *Transport) HandleGET(w http.ResponseWriter, r *http.Request) {
 	// Validate session
 	sessionID := r.Header.Get("Mcp-Session-Id")
 	if sessionID == "" {
-		http.Error(w, "Session ID required", http.StatusUnauthorized)
+		// SSE GET unsupported without session; return 405 to avoid OAuth misdetection
+		w.Header().Set("Allow", "POST, DELETE, OPTIONS")
+		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	_, exists := t.sessionManager.Get(sessionID)
 	if !exists {
-		http.Error(w, "Session not found", http.StatusUnauthorized)
+		http.Error(w, "Session not found", http.StatusNotFound)
 		return
 	}
 
