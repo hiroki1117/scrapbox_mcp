@@ -45,6 +45,7 @@ func main() {
 	registry.Register(tools.NewGetPageTool(scrapboxClient))
 	registry.Register(tools.NewListPagesTool(scrapboxClient))
 	registry.Register(tools.NewSearchPagesTool(scrapboxClient))
+	registry.Register(tools.NewGetSmartContextTool(scrapboxClient))
 	registry.Register(tools.NewInsertLinesTool(scrapboxClient, cfg.WebSocketURL))
 	registry.Register(tools.NewCreatePageTool(scrapboxClient, cfg.WebSocketURL))
 	registry.Register(tools.NewEditPageTool(scrapboxClient, cfg.WebSocketURL))

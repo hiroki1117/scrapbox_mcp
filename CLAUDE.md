@@ -34,6 +34,7 @@ internal/
     ├── get_page.go             # Retrieve page content
     ├── list_pages.go           # List pages in project
     ├── search_pages.go         # Full-text search
+    ├── get_smart_context.go    # Export page + related pages for AI (Smart Context)
     ├── insert_lines.go         # Insert lines (WebSocket)
     ├── create_page.go          # Create new page (WebSocket)
     └── edit_page.go            # Edit page content (WebSocket)
@@ -75,6 +76,7 @@ Optional:
 | `get_page` | Get page content by title | REST |
 | `list_pages` | List all pages in project | REST |
 | `search_pages` | Full-text search | REST |
+| `get_smart_context` | Export a page and its related pages (1/2 hop) as AI-ready text ("Export for AI") | REST |
 | `insert_lines` | Insert lines into a page | WebSocket |
 | `create_page` | Create a new page | WebSocket |
 | `edit_page` | Replace page content with new text | WebSocket |

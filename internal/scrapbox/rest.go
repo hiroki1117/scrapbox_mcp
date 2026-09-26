@@ -148,6 +148,46 @@ func (c *RESTClient) SearchPages(project, query string, limit int) (*SearchRespo
 	return &searchResp, nil
 }
 
+// ExportSmartContext retrieves the Smart Context ("Export for AI") text for a page.
+// hops must be 1 or 2. The response is plain text formatted for LLMs.
+func (c *RESTClient) ExportSmartContext(project, title string, hops int) (string, error) {
+	if hops != 1 && hops != 2 {
+		return "", mcperrors.NewScrapboxError(mcperrors.ErrCodeInvalidInput, fmt.Sprintf("hops must be 1 or 2, got %d", hops), nil)
+	}
+	endpoint := fmt.Sprintf("%s/smart-context/export-%dhop-links/%s.txt?title=%s",
+		c.baseURL, hops, url.PathEscape(project), url.QueryEscape(title))
+
+	req, err := http.NewRequest("GET", endpoint, nil)
+	if err != nil {
+		return "", mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to create request", err)
+	}
+
+	c.auth.AddAuthHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return "", mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to export smart context", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusBadRequest {
+		return "", mcperrors.NewScrapboxError(mcperrors.ErrCodeInvalidInput, fmt.Sprintf("Invalid smart context request: %s", title), nil)
+	}
+	if resp.StatusCode == http.StatusNotFound {
+		return "", mcperrors.NewScrapboxError(mcperrors.ErrCodeNotFound, fmt.Sprintf("Project not found: %s", project), nil)
+	}
+	if err := checkResponseStatus(resp); err != nil {
+		return "", err
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", mcperrors.NewScrapboxError(mcperrors.ErrCodeNetworkError, "Failed to read response", err)
+	}
+
+	return string(body), nil
+}
+
 // GetMe retrieves the current user information
 func (c *RESTClient) GetMe() (*User, error) {
 	endpoint := fmt.Sprintf("%s/users/me", c.baseURL)
