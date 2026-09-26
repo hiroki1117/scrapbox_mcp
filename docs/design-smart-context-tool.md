@@ -12,7 +12,7 @@ Cosense 公式も「MCP で読む（1 リクエストで大量のページを取
 
 | Phase | 内容 | 前提 |
 |-------|------|------|
-| 1 | `get_smart_context` ツール（1 hop / 2 hop・サイズ制御つき） | 仕様確認済み。すぐ実装できる |
+| 1 | `get_smart_context` ツール（1 hop / 2 hop・サイズ制御つき） | **実装済み** |
 | 2 | 2 hop search による絞り込みパラメータの追加 | API パラメータの調査が必要 |
 | 3 | signed URL 発行ツール（外部 AI に URL だけを渡す） | 2026 年の新機能。エンドポイントの調査が必要 |
 
@@ -35,12 +35,12 @@ Cosense 公式も「MCP で読む（1 リクエストで大量のページを取
   "type": "object",
   "properties": {
     "title":     { "type": "string",  "description": "起点ページのタイトル" },
-    "hops":      { "type": "integer", "enum": [1, 2], "default": 1,
+    "hops":      { "type": "number", "enum": [1, 2], "default": 1,
                    "description": "1: 直接リンク/被リンクのページまで。2: 2 hop link まで含める（サイズがかなり大きくなる）" },
     "project":   { "type": "string",  "description": "プロジェクト名（省略時はデフォルト）" },
-    "max_chars": { "type": "integer", "default": 100000,
+    "max_chars": { "type": "number", "default": 100000,
                    "description": "返す最大文字数。超えたときはページ単位で切り詰める" },
-    "offset":    { "type": "integer", "default": 0,
+    "offset":    { "type": "number", "default": 0,
                    "description": "前回の続きを取得するときの開始位置（文字単位）" }
   },
   "required": ["title"]
@@ -60,8 +60,7 @@ Cosense 公式も「MCP で読む（1 リクエストで大量のページを取
 3. 切り詰めたときは、末尾に次のような注記を付ける
 
    ```
-   [truncated: returned 0-98,213 of 1,120,544 chars (12 of 143 pages).
-    Call again with offset=98213 to continue, or use hops=1.]
+   [truncated: returned chars 0-99791 of 252747. Call again with offset=99791 to continue, or use hops=1.]
    ```
 
 4. 先頭の LLM 向けガイドは `offset=0` のときだけ入る。続きを取得するときはガイドが入らないが、ページ単位で切っているので読むのに問題はない
