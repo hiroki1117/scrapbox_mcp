@@ -188,13 +188,6 @@ func diffToChanges(oldLines []Line, newTexts []string, userID string) []map[stri
 	oldLen := len(oldLines)
 	newLen := len(newTexts)
 
-	// Track the last valid line ID for insertion chaining
-	// This is used when inserting multiple consecutive lines
-	var lastLineID string
-	if oldLen > 0 {
-		lastLineID = oldLines[oldLen-1].ID
-	}
-
 	// First pass: handle updates and track which old lines to keep
 	// For simplicity, we use a position-based approach:
 	// - Lines at same position with different text -> update
@@ -226,25 +219,17 @@ func diffToChanges(oldLines []Line, newTexts []string, userID string) []map[stri
 		})
 	}
 
-	// Insert extra new lines
-	if newLen > oldLen {
-		// Determine insert position
-		if oldLen > 0 {
-			lastLineID = oldLines[oldLen-1].ID
-		}
-
-		for i := oldLen; i < newLen; i++ {
-			newLineID := createLineId(userID)
-			changes = append(changes, map[string]interface{}{
-				"_insert": lastLineID,
-				"lines": map[string]interface{}{
-					"id":   newLineID,
-					"text": newTexts[i],
-				},
-			})
-			// Chain: next insert happens after this new line
-			lastLineID = newLineID
-		}
+	// Append extra new lines in order.
+	// `_insert: X` inserts the line BEFORE line X, so chaining on the previous
+	// line ID would reverse the order; "_end" appends to the end of the page.
+	for i := oldLen; i < newLen; i++ {
+		changes = append(changes, map[string]interface{}{
+			"_insert": "_end",
+			"lines": map[string]interface{}{
+				"id":   createLineId(userID),
+				"text": newTexts[i],
+			},
+		})
 	}
 
 	return changes
