@@ -179,77 +179,128 @@ func (wsc *WebSocketClient) messageHandler() {
 	}
 }
 
-// diffToChanges computes the changes needed to transform oldLines into newLines.
-// It generates _insert, _update, and _delete operations.
-// The algorithm processes line by line, tracking positions in both old and new arrays.
+// diffToChanges computes the changes needed to transform oldLines into newTexts.
+// It runs a line diff so that only the lines that actually changed are touched,
+// keeping line IDs (and their created/updated metadata) of unchanged lines intact.
+//
+// Within each block of changed lines, deleted and inserted lines are paired as
+// _update (keeping the old line ID); the rest become _delete or _insert.
+// `_insert: X` inserts BEFORE line X, so all inserts of a block use the next
+// unchanged line (or "_end") as the anchor, which keeps them in order.
 func diffToChanges(oldLines []Line, newTexts []string, userID string) []map[string]interface{} {
-	changes := make([]map[string]interface{}, 0)
-
-	oldLen := len(oldLines)
-	newLen := len(newTexts)
-
-	// First pass: handle updates and track which old lines to keep
-	// For simplicity, we use a position-based approach:
-	// - Lines at same position with different text -> update
-	// - Extra new lines -> insert
-	// - Extra old lines -> delete
-
-	minLen := oldLen
-	if newLen < minLen {
-		minLen = newLen
+	oldTexts := make([]string, len(oldLines))
+	for i, line := range oldLines {
+		oldTexts[i] = line.Text
 	}
 
-	// Update existing lines where text differs
-	for i := 0; i < minLen; i++ {
-		if oldLines[i].Text != newTexts[i] {
+	changes := make([]map[string]interface{}, 0)
+	var deleted []int  // old line indexes removed in the current block
+	var inserted []int // new text indexes added in the current block
+
+	flush := func(anchor string) {
+		paired := len(deleted)
+		if len(inserted) < paired {
+			paired = len(inserted)
+		}
+		for i := 0; i < paired; i++ {
+			oldLine, newText := oldLines[deleted[i]], newTexts[inserted[i]]
+			if oldLine.Text != newText {
+				changes = append(changes, updateChange(oldLine.ID, newText))
+			}
+		}
+		for _, idx := range deleted[paired:] {
 			changes = append(changes, map[string]interface{}{
-				"_update": oldLines[i].ID,
-				"lines": map[string]interface{}{
-					"text": newTexts[i],
-				},
+				"_delete": oldLines[idx].ID,
+				"lines":   -1,
 			})
+		}
+		for _, idx := range inserted[paired:] {
+			changes = append(changes, insertChange(anchor, newTexts[idx], userID))
+		}
+		deleted, inserted = deleted[:0], inserted[:0]
+	}
+
+	for _, e := range diffLines(oldTexts, newTexts) {
+		switch e.op {
+		case opDelete:
+			deleted = append(deleted, e.oldIdx)
+		case opInsert:
+			inserted = append(inserted, e.newIdx)
+		case opEqual:
+			flush(oldLines[e.oldIdx].ID)
+		}
+	}
+	flush("_end")
+
+	return changes
+}
+
+// insertLinesChanges builds _insert changes that add newLines right after the
+// first line whose text equals targetLine. If targetLine is empty or not found,
+// the lines are appended to the end of the page.
+func insertLinesChanges(oldLines []Line, targetLine string, newLines []string, userID string) []map[string]interface{} {
+	anchor := "_end"
+	if targetLine != "" {
+		for i, line := range oldLines {
+			if line.Text == targetLine {
+				if i+1 < len(oldLines) {
+					anchor = oldLines[i+1].ID
+				}
+				break
+			}
 		}
 	}
 
-	// Delete extra old lines (from end to avoid index issues)
-	for i := oldLen - 1; i >= newLen; i-- {
-		changes = append(changes, map[string]interface{}{
-			"_delete": oldLines[i].ID,
-			"lines":   -1,
-		})
+	changes := make([]map[string]interface{}, 0, len(newLines))
+	for _, text := range newLines {
+		changes = append(changes, insertChange(anchor, text, userID))
 	}
-
-	// Append extra new lines in order.
-	// `_insert: X` inserts the line BEFORE line X, so chaining on the previous
-	// line ID would reverse the order; "_end" appends to the end of the page.
-	for i := oldLen; i < newLen; i++ {
-		changes = append(changes, map[string]interface{}{
-			"_insert": "_end",
-			"lines": map[string]interface{}{
-				"id":   createLineId(userID),
-				"text": newTexts[i],
-			},
-		})
-	}
-
 	return changes
+}
+
+func updateChange(lineID, text string) map[string]interface{} {
+	return map[string]interface{}{
+		"_update": lineID,
+		"lines": map[string]interface{}{
+			"text": text,
+		},
+	}
+}
+
+func insertChange(anchor, text, userID string) map[string]interface{} {
+	return map[string]interface{}{
+		"_insert": anchor,
+		"lines": map[string]interface{}{
+			"id":   createLineId(userID),
+			"text": text,
+		},
+	}
 }
 
 // PatchPage applies a patch to a page using diff-based changes.
 // This is the core function that computes the diff between old and new content
 // and generates the appropriate _insert, _update, _delete operations.
 func (wsc *WebSocketClient) PatchPage(page *Page, projectID, userID string, newTexts []string) error {
-	// Ensure connection
-	if err := wsc.Connect(); err != nil {
-		return err
-	}
+	return wsc.commitChanges(page, projectID, userID, diffToChanges(page.Lines, newTexts, userID))
+}
 
-	// Generate changes using diff
-	changes := diffToChanges(page.Lines, newTexts, userID)
+// InsertLines inserts lines into a page after a target line.
+// If targetLine is empty or not found, lines are appended to the end.
+// Only _insert changes are sent, so existing lines are left untouched.
+func (wsc *WebSocketClient) InsertLines(page *Page, projectID, userID, targetLine string, newLines []string) error {
+	return wsc.commitChanges(page, projectID, userID, insertLinesChanges(page.Lines, targetLine, newLines, userID))
+}
 
+// commitChanges sends the given changes to the page as a single commit
+func (wsc *WebSocketClient) commitChanges(page *Page, projectID, userID string, changes []map[string]interface{}) error {
 	if len(changes) == 0 {
 		// No changes needed
 		return nil
+	}
+
+	// Ensure connection
+	if err := wsc.Connect(); err != nil {
+		return err
 	}
 
 	// Build commit data
@@ -277,38 +328,6 @@ func (wsc *WebSocketClient) PatchPage(page *Page, projectID, userID string, newT
 	}
 
 	return wsc.sendCommitAndWaitACK(reqJSON)
-}
-
-// InsertLines inserts lines into a page after a target line.
-// If targetLine is empty, lines are appended to the end.
-// This uses the diff-based approach to properly handle line changes.
-func (wsc *WebSocketClient) InsertLines(page *Page, projectID, userID, targetLine string, newLines []string) error {
-	// Build the new content by inserting lines at the appropriate position
-	var newTexts []string
-
-	if targetLine == "" {
-		// Append to end: keep all existing lines and add new ones
-		for _, line := range page.Lines {
-			newTexts = append(newTexts, line.Text)
-		}
-		newTexts = append(newTexts, newLines...)
-	} else {
-		// Find target line and insert after it
-		inserted := false
-		for _, line := range page.Lines {
-			newTexts = append(newTexts, line.Text)
-			if line.Text == targetLine && !inserted {
-				newTexts = append(newTexts, newLines...)
-				inserted = true
-			}
-		}
-		// If target not found, append to end
-		if !inserted {
-			newTexts = append(newTexts, newLines...)
-		}
-	}
-
-	return wsc.PatchPage(page, projectID, userID, newTexts)
 }
 
 // CreatePage creates a new page with the given title and body lines.
