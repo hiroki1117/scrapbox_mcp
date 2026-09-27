@@ -5,11 +5,15 @@ A Model Context Protocol (MCP) server for Scrapbox/Cosense, implemented in Go an
 ## Features
 
 - **MCP Streamable HTTP Transport**: Standards-compliant MCP server using the latest Streamable HTTP transport
-- **4 Core Tools**:
+- **7 Tools**:
   - `get_page` - Retrieve page content and metadata
   - `list_pages` - List all pages in a project
   - `search_pages` - Full-text search across pages
+  - `get_smart_context` - Export a page and its related pages (1/2 hop links) as AI-ready text (Scrapbox "Export for AI" / Smart Context)
   - `insert_lines` - Insert lines into pages (via WebSocket)
+  - `create_page` - Create a new page (via WebSocket)
+  - `edit_page` - Replace the whole content of a page; only changed lines are sent (via WebSocket)
+- **Multi-project**: Every tool accepts an optional `project` argument (defaults to `COSENSE_PROJECT_NAME`)
 - **CloudRun Ready**: Containerized with Docker, ready for Google CloudRun deployment
 - **Extensible Architecture**: Easy to add new tools following the registry pattern
 
@@ -37,10 +41,15 @@ All configuration is done via environment variables:
 ### Optional
 - `PORT` - HTTP server port (default: 8080)
 - `SESSION_TTL` - Session expiration (default: 1h)
-- `LOG_LEVEL` - Logging level (default: info)
-- `ALLOWED_ORIGINS` - CORS origins (comma-separated)
+- `SCRAPBOX_API_URL` - REST API base URL (default: https://scrapbox.io/api)
+- `SCRAPBOX_WS_URL` - WebSocket URL (default: wss://scrapbox.io/socket.io/)
+- `REQUEST_TIMEOUT` - REST API request timeout (default: 30s)
+- `ALLOWED_ORIGINS` - Allowed CORS / Origin values (comma-separated, empty allows all)
+- `ENABLE_CORS` - Send CORS headers (default: true)
+- `ENVIRONMENT` - Only printed in the startup log (default: production)
 
-See [.env.example](.env.example) for a complete list.
+`LOG_LEVEL`, `ENABLE_SSE` and `MAX_RETRIES` are parsed but not used yet.
+See [.env.example](.env.example) for a template.
 
 ## Development
 
@@ -74,6 +83,13 @@ go run cmd/server/main.go
 ### Testing
 
 ```bash
+# Unit tests
+go test ./...
+```
+
+Manual check against a running server:
+
+```bash
 # Health check
 curl http://localhost:8080/health
 
@@ -105,11 +121,19 @@ docker build -t scrapbox-mcp-server .
 
 ### Deploy to CloudRun
 
+Pushing to `main` builds the image and deploys it automatically via
+[.github/workflows/deploy.yml](.github/workflows/deploy.yml)
+(Workload Identity Federation; configure the `GCP_PROJECT_ID`, `GCP_REGION`, `ARTIFACT_REPOSITORY`,
+`IMAGE_NAME`, `CLOUDRUN_SERVICE_NAME`, `WIF_PROVIDER`, `WIF_SERVICE_ACCOUNT` and `COSENSE_PROJECT_NAME`
+repository secrets, and a `cosense-sid` secret in Secret Manager).
+
+To deploy manually:
+
 ```bash
-# Tag for Google Container Registry
+# Tag for Artifact Registry
 docker tag scrapbox-mcp-server asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/server:latest
 
-# Push to GCR
+# Push to Artifact Registry
 docker push asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/server:latest
 
 
@@ -117,10 +141,11 @@ docker push asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/serv
 gcloud run deploy scrapbox-mcp-server \
   --image asia-northeast1-docker.pkg.dev/YOUR-PROJECT/scrapbox-mcp-server/server:latest \
   --platform managed \
-  --region us-central1 \
+  --region asia-northeast1 \
   --service-account your-serviceaccount \
   --min-instances 0 \
   --max-instances 1 \
+  --timeout 600s \
   --set-env-vars COSENSE_PROJECT_NAME=your-project \
   --set-secrets COSENSE_SID=cosense-sid:latest \
   --allow-unauthenticated
@@ -128,25 +153,22 @@ gcloud run deploy scrapbox-mcp-server \
 
 ## MCP Client Integration
 
-### Claude Desktop
+### Claude Code
 
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
-
-```json
-{
-  "mcpServers": {
-    "scrapbox": {
-      "url": "https://your-cloudrun-url.run.app/mcp"
-    }
-  }
-}
+```bash
+claude mcp add --transport http scrapbox https://your-cloudrun-url.run.app/mcp
 ```
+
+### Claude Desktop / claude.ai
+
+Add `https://your-cloudrun-url.run.app/mcp` as a custom connector (Settings → Connectors).
+`claude_desktop_config.json` only supports local (stdio) servers, so a remote URL cannot be set there directly.
 
 ### Other MCP Clients
 
 Use the `/mcp` endpoint with Streamable HTTP transport. The server supports:
 - POST requests for client-to-server messages
-- GET requests for server-to-client SSE streams
+- GET requests open an SSE stream (kept open, but the server does not push messages yet)
 - DELETE requests for session termination
 
 ## Project Structure
@@ -156,10 +178,12 @@ scrapbox_mcp/
 ├── cmd/server/main.go              # Application entry point
 ├── internal/
 │   ├── mcp/                        # MCP protocol implementation
-│   ├── scrapbox/                   # Scrapbox API client
+│   ├── scrapbox/                   # Scrapbox API client (REST, WebSocket, line diff)
 │   ├── tools/                      # MCP tools (get_page, etc.)
 │   └── config/                     # Configuration management
 ├── pkg/errors/                     # Error types
+├── docs/                           # Scrapbox API / WebSocket notes and design docs
+├── .github/workflows/deploy.yml    # CI deploy to CloudRun
 ├── Dockerfile                      # CloudRun deployment
 └── .env.example                    # Configuration template
 ```
@@ -181,6 +205,8 @@ scrapbox_mcp/
 3. Register in `cmd/server/main.go`:
    ```go
    registry.Register(tools.NewYourTool(scrapboxClient))
+   // Write tools also take the WebSocket URL:
+   // registry.Register(tools.NewYourTool(scrapboxClient, cfg.WebSocketURL))
    ```
 
 ## License

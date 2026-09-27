@@ -34,8 +34,10 @@ MCPサーバーの動作確認を行うエージェントです。
    - get_page: ページ取得
    - list_pages: ページ一覧
    - search_pages: 検索
+   - get_smart_context: 関連ページを含むエクスポート（hops=1/2、max_chars/offset による切り詰め）
    - insert_lines: 行挿入（要注意：実際に書き込む）
    - create_page: ページ作成（要注意：実際に作成する）
+   - edit_page: ページ全体の置き換え（要注意：実際に書き込む。変更のない行が上書きされないことも確認）
 
 ## 前提条件
 

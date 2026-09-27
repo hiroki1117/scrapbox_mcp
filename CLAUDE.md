@@ -28,6 +28,7 @@ internal/
 │   ├── auth.go                 # Cookie-based authentication
 │   ├── rest.go                 # REST API client
 │   ├── types.go                # Scrapbox data types
+│   ├── diff.go                 # Line diff (Myers) -> WebSocket commit changes
 │   └── websocket.go            # WebSocket client for writes
 └── tools/
     ├── registry.go             # Tool registration interface
@@ -53,6 +54,9 @@ go build -o server cmd/server/main.go
 # Run with environment variables
 COSENSE_PROJECT_NAME=your-project COSENSE_SID=your-cookie go run cmd/server/main.go
 
+# Test
+go test ./...
+
 # Build Docker image
 docker build -t scrapbox-mcp-server .
 ```
@@ -68,6 +72,11 @@ Optional:
 - `SESSION_TTL` (default: 1h)
 - `SCRAPBOX_API_URL` (default: https://scrapbox.io/api)
 - `SCRAPBOX_WS_URL` (default: wss://scrapbox.io/socket.io/)
+- `REQUEST_TIMEOUT` (default: 30s)
+- `ALLOWED_ORIGINS` (comma-separated, empty allows all)
+- `ENABLE_CORS` (default: true)
+- `ENVIRONMENT` (default: production, only logged)
+- `LOG_LEVEL` / `ENABLE_SSE` / `MAX_RETRIES` are parsed but currently unused
 
 ## MCP Tools
 
@@ -104,4 +113,7 @@ Optional:
 `scrapbox-spec` エージェントの調査結果は `docs/` 配下に蓄積:
 - `docs/scrapbox-api.md` - REST API仕様
 - `docs/scrapbox-websocket.md` - WebSocket仕様
-- `docs/scrapbox-tips.md` - Tips・ハマりポイント
+- `docs/scrapbox-tips.md` - Tips・ハマりポイント（未作成。現状は各仕様ドキュメント内の「ハマりポイント」節に記載）
+
+設計ドキュメント:
+- `docs/design-smart-context-tool.md` - `get_smart_context` ツールの設計
