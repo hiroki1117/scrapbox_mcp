@@ -117,3 +117,4 @@ Optional:
 
 設計ドキュメント:
 - `docs/design-smart-context-tool.md` - `get_smart_context` ツールの設計
+- `docs/design-mcp-authorization.md` - MCP 認証仕様（2026-07-28）の整理と本サーバーへの実装検討
