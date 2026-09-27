@@ -151,9 +151,6 @@ gcloud run deploy scrapbox-mcp-server \
   --allow-unauthenticated
 ```
 
-> **Note**: The server has no authentication of its own. With `--allow-unauthenticated`, anyone who knows the URL
-> can read and write your Scrapbox project with your `COSENSE_SID`. Keep the URL private or put an auth layer in front.
-
 ## MCP Client Integration
 
 ### Claude Code
